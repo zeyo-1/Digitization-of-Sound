@@ -1,0 +1,427 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>アナログ→デジタル 標本化・量子化・符号化</title>
+<style>
+  :root{
+    --ink:#14162B; --bg:#F4F6FB; --panel:#fff; --line:#DCE1EC; --muted:#5B6270;
+    --wave:#2456C8; --samp:#E8590C; --quant:#0E9E86; --code:#5B2E9E; --grid:#E6EAF2; --ok:#1E9E5A; --ng:#D23A2E;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0; background:var(--bg); color:var(--ink);
+    font-family:"Segoe UI","Hiragino Kaku Gothic ProN","Yu Gothic UI","Meiryo",sans-serif; line-height:1.6; padding:18px;}
+  .wrap{max-width:920px; margin:0 auto;}
+  h1{font-size:21px; margin:0 0 2px;}
+  .lead{color:var(--muted); font-size:14px; margin:4px 0 12px;}
+  .mono{font-family:"Consolas","SFMono-Regular","Menlo",monospace;}
+
+  .tabbar{display:flex; gap:6px; border-bottom:2px solid var(--line); align-items:flex-end;}
+  .tab{font-family:inherit; font-size:15px; font-weight:700; cursor:pointer; border:1px solid var(--line); border-bottom:none;
+    background:#EEF1F8; color:var(--muted); border-radius:12px 12px 0 0; padding:11px 16px; margin-bottom:-2px;}
+  .tab .n{display:inline-block; width:22px; height:22px; line-height:22px; border-radius:50%; background:#CAD2E4; color:#fff; margin-right:7px; font-size:13px;}
+  .tab.active{background:#fff;}
+  .tab[data-tab="1"].active{border-color:var(--samp); border-bottom-color:#fff; color:#9A3B08;} .tab[data-tab="1"].active .n{background:var(--samp);}
+  .tab[data-tab="2"].active{border-color:var(--quant); border-bottom-color:#fff; color:#0B6E5E;} .tab[data-tab="2"].active .n{background:var(--quant);}
+  .tab[data-tab="3"].active{border-color:var(--code); border-bottom-color:#fff; color:#4A2585;} .tab[data-tab="3"].active .n{background:var(--code);}
+  .resetbtn{margin-left:auto; margin-bottom:6px; background:#fff; color:var(--ink); border:1px solid var(--line); border-radius:10px; padding:8px 14px; font-weight:600; cursor:pointer;}
+  .resetbtn:hover{border-color:var(--muted);}
+
+  .tabpanels{border:1px solid var(--line); border-top:none; border-radius:0 0 14px 14px; padding:16px; background:#fff; display:grid;}
+  .tabpanel{grid-area:1 / 1;}
+  .tabpanel:not(.active){visibility:hidden; pointer-events:none;}
+  .tabpanel label{font-weight:700; font-size:15px;}
+  .tabpanel .sub{color:var(--muted); font-size:12.5px; margin:2px 0 8px;}
+  .tabpanel .desc{font-size:14px; margin-bottom:10px;}
+
+  button{font-family:inherit; font-size:14px; cursor:pointer; border:1px solid var(--line); background:#EEF1F8; color:var(--ink); border-radius:10px; padding:9px 14px;}
+  button:disabled{cursor:not-allowed; background:#E6E9F1; color:#AAB0BE; border-color:#E0E3EC;}
+  .seg{display:inline-flex; gap:8px; flex-wrap:wrap;}
+  .bitbtn.sel{background:var(--quant); color:#fff; border-color:var(--quant); font-weight:700;}
+  input[type=range]{width:280px; vertical-align:middle;}
+  .count{font-size:15px;} .count b{font-size:20px; color:var(--samp);}
+  .rate{font-size:12.5px; color:var(--muted); margin-top:2px;}
+  .dorow{margin-top:12px;}
+  .dobtn{font-weight:700; padding:11px 20px; font-size:15px;}
+  .dobtn[data-do="1"]:not(:disabled){background:var(--samp); color:#fff; border-color:var(--samp);}
+  .dobtn[data-do="2"]:not(:disabled){background:var(--quant); color:#fff; border-color:var(--quant);}
+  .dobtn[data-do="3"]:not(:disabled){background:var(--code); color:#fff; border-color:var(--code);}
+  @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(20,22,43,.25);}100%{box-shadow:0 0 0 12px rgba(20,22,43,0);}}
+  .dobtn.pulsing:not(:disabled){animation:pulse 1.5s infinite;}
+  .tab.pulsing{animation:pulse 1.5s infinite; position:relative; z-index:2;}
+  .hint{font-size:12.5px; color:var(--muted); margin-left:10px;}
+
+  .stage{background:#fff; border:1px solid var(--line); border-radius:12px; padding:6px; margin:14px 0 6px;}
+  .stage svg{width:100%; height:auto; display:block;}
+  .caption{font-size:15px; margin:8px 4px 2px; min-height:24px; font-weight:600;}
+
+  .legend{display:flex; gap:14px; flex-wrap:wrap; font-size:12.5px; color:var(--muted); margin:2px 2px 10px;}
+  .legend span{display:inline-flex; align-items:center;}
+  .legend i{width:20px; height:0; border-top:3px solid; display:inline-block; margin-right:6px;}
+  .legend .dotmark{width:11px; height:11px; border-radius:50%; border-top:0; margin-right:6px;}
+  .legend .lq,.legend .lc{display:none;}
+  #app.show-glines .legend .lq{display:inline-flex;} #app.coded .legend .lc{display:inline-flex;}
+
+  .axis{stroke:#7C8090; stroke-width:1.5;} .tick{stroke:#7C8090; stroke-width:1.5;}
+  .alab{fill:var(--muted); font-size:12px;} .atitle{fill:var(--muted); font-size:12.5px; font-weight:600;}
+  .wave{fill:none; stroke:var(--wave); stroke-width:3; stroke-linecap:round; stroke-linejoin:round; opacity:1; transition:opacity .4s;}
+  #app.show-glines .wave{opacity:.30;}
+  .divline{stroke:var(--samp); stroke-width:1.3; opacity:0; transition:opacity .3s;}
+  #app.tab-1 .divline{opacity:.26;} #app.tab-2 .divline,#app.tab-3 .divline{opacity:.13;}
+  .lvline{stroke:var(--quant); stroke-width:1.3; opacity:0; transition:opacity .3s;}   /* 細い緑の横線 */
+  #app.show-glines .lvline{opacity:.8;} #app.coded .lvline{opacity:.5;}
+  .lvnum{fill:var(--quant); font-size:12px; font-weight:700; opacity:0; transition:opacity .3s;}
+  #app.show-glines .lvnum{opacity:1;}
+  .lvbin{fill:var(--code); font-size:12px; font-weight:700; font-family:"Consolas","Menlo",monospace; opacity:0; transition:opacity .3s;}
+  #app.coded .lvbin{opacity:1;}
+  .clab{fill:var(--code); font-size:11px; font-weight:700; font-family:"Consolas","Menlo",monospace; opacity:0; transform:translateX(-8px); transition:transform .4s cubic-bezier(.22,.61,.36,1), opacity .3s; text-anchor:middle;}
+  #app.coded .clab{opacity:1; transform:translateX(0);}
+  .arrow{stroke:var(--samp); stroke-width:1.5; fill:var(--samp); opacity:0; transition:opacity .2s;}
+  #app.at-levels .arrow,#app.arrows-on .arrow{opacity:.9;}
+  .dot{fill:var(--samp); stroke:#fff; stroke-width:1.4; opacity:0; transform:translateX(-10px);
+    transition:transform .5s cubic-bezier(.22,.61,.36,1), fill .3s ease, opacity .35s ease;}
+  #app.show-dots .dot{opacity:1; transform:translateX(0);}
+  #app.at-levels .dot{transform:translateY(var(--dy,0px));}
+  #app.greened .dot{fill:var(--quant);}
+  #app.no-anim .dot,#app.no-anim .divline,#app.no-anim .wave,#app.no-anim .lvline,#app.no-anim .lvnum,#app.no-anim .lvbin,#app.no-anim .clab,#app.no-anim .arrow{transition:none !important;}
+
+  .tablewrap{display:none; overflow-x:auto; margin:2px 0 10px; border:1px solid var(--line); border-radius:10px; background:#fff;}
+  #app.at-levels .tablewrap{display:block;}
+  table.datatable{border-collapse:collapse; font-size:13px; white-space:nowrap; min-width:100%;}
+  .datatable th,.datatable td{border:1px solid var(--line); padding:5px 10px; text-align:center;}
+  .datatable th{background:#F0F3FA; position:sticky; left:0; z-index:1; font-weight:700;}
+  .datatable .coderow{display:none;} #app.coded .datatable .coderow{display:table-row;}
+  .datatable .coderow td{color:var(--code); font-family:"Consolas","Menlo",monospace;}
+
+  .panel{background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:14px 16px; margin:12px 0;}
+  .panel.only-q,.panel.only-c{display:none;}
+  #app.at-levels .panel.only-q{display:block;} #app.coded .panel.only-c{display:block;}
+  .readout{display:grid; grid-template-columns:repeat(3,1fr); gap:10px;}
+  .r{background:var(--bg); border:1px solid var(--line); border-radius:10px; padding:9px 10px; text-align:center;}
+  .r .k{font-size:11.5px; color:var(--muted);} .r .v{font-size:18px; font-weight:700;} .r .v small{font-size:11px; color:var(--muted); font-weight:500;}
+  .datarate.only-c{display:none;} #app.coded .datarate.only-c{display:block;}
+  .datarate{margin-top:10px; font-size:14px; font-weight:700; background:#F1ECFA; border:1px solid #D2C2ED; border-radius:10px; padding:10px 12px; color:#4A2585;}
+
+  .audiorow{display:flex; gap:10px; align-items:center; flex-wrap:wrap;}
+  .abtn{font-weight:700;} .abtn.orig:not(:disabled){background:var(--wave); color:#fff; border-color:var(--wave);}
+  .abtn.dig:not(:disabled){background:var(--quant); color:#fff; border-color:var(--quant);}
+  .abtn.cd:not(:disabled){background:#1C1F4A; color:#fff; border-color:#1C1F4A;}
+
+  .named{border-radius:10px; padding:10px 14px; margin:12px 0; font-size:14px; min-height:62px; background:#F3F5FA; border:1px solid var(--line); border-left:5px solid #B9C2D6;}
+  #app.tab-1 .named{background:#FFF7E9; border-color:#F3D89A; border-left-color:var(--samp);}
+  #app.tab-2 .named{background:#E9F7F3; border-color:#A9DFD3; border-left-color:var(--quant);}
+  #app.tab-3 .named{background:#F1ECFA; border-color:#D2C2ED; border-left-color:var(--code);}
+  .named b{font-weight:700;}
+
+  .quizq{margin:12px 0;}
+  .q{font-weight:600; margin:6px 0;}
+  .opts{display:flex; flex-direction:column; gap:8px;}
+  .opt{position:relative; text-align:left; width:100%; background:#F6F8FE; color:var(--ink); border:1px solid var(--line); border-radius:10px; padding:10px 12px 10px 40px; font-size:14px;}
+  .opt:not(:disabled):hover{border-color:var(--wave);} .opt:disabled{color:var(--ink);}
+  .opt.correct{border-color:var(--ok); background:#EAF7EF; color:#12603A;}
+  .opt.wrong{border-color:var(--ng); background:#FBEBEA; color:#8A241D;}
+  .opt.correct::after{content:"◯"; color:var(--ok);} .opt.wrong::after{content:"✕"; color:var(--ng);}
+  .opt.correct::after,.opt.wrong::after{position:absolute; left:12px; top:50%; transform:translateY(-50%); font-size:18px; font-weight:700;}
+  .explain{display:none; margin-top:8px; font-size:13.5px; background:#EAF7EF; border:1px solid #A9D9BE; border-left:4px solid var(--ok); border-radius:8px; padding:8px 12px; color:#12603A;}
+  .explain.show{display:block;}
+</style>
+</head>
+<body>
+<div class="wrap" id="app">
+  <h1>PCM方式による音のデジタル化</h1>
+  <p class="lead">アナログの音声データ（波）を、コンピュータが扱えるデジタルデータ（2進数）に変換する（＝ A/D変換 という）流れを、3つのステップで見てみよう。</p>
+
+  <div class="tabbar" role="tablist">
+    <button class="tab" data-tab="1" role="tab"><span class="n">1</span>標本化</button>
+    <button class="tab" data-tab="2" role="tab"><span class="n">2</span>量子化</button>
+    <button class="tab" data-tab="3" role="tab"><span class="n">3</span>符号化</button>
+    <button class="resetbtn" id="btnReset">↺ 最初から</button>
+  </div>
+
+  <div class="tabpanels">
+    <div class="tabpanel" data-panel="1">
+      <label>区切りの数（サンプルの数）</label>
+      <div class="sub">波を縦の線で等間隔に区切り、区切りごとに電圧の強さを記録します。</div>
+      <input type="range" id="nrange" min="2" max="40" step="1" value="12">
+      <span class="count" style="margin-left:10px;"><b id="nVal">12</b> 個</span>
+      <span class="rate" id="rate">（10 ms に 12 個 ＝ 1秒あたり 1200 回）</span>
+      <div class="dorow"><button class="dobtn" data-do="1">標本化する</button></div>
+    </div>
+    <div class="tabpanel" data-panel="2">
+      <label>段の数（量子化ビット数）</label>
+      <div class="sub">電圧を何段かで区切り、各サンプルを最寄りの段の電圧に変換する。段の数 ＝ 2 の（ビット数）乗</div>
+      <input type="range" id="bitrange" min="1" max="5" step="1" value="3">
+      <span class="count" style="margin-left:10px;"><b id="bitVal">3</b> ビット（<span id="bitLevels">8</span>段）</span>
+      <div class="dorow"><button class="dobtn" data-do="2">量子化する</button><span class="hint" id="hint2"></span></div>
+    </div>
+    <div class="tabpanel" data-panel="3">
+      <label>符号化</label>
+      <div class="desc">量子化によって得られた値を2進数に変換。これがコンピュータの扱うデジタルデータです。</div>
+      <div class="dorow"><button class="dobtn" data-do="3">符号化する</button><span class="hint" id="hint3"></span></div>
+    </div>
+  </div>
+
+  <div class="stage">
+    <svg id="plot" viewBox="0 0 760 360" role="img" aria-label="標本化・量子化・符号化の図">
+      <g id="gAxis"></g><g id="gDiv"></g><g id="gLevels"></g>
+      <path class="wave" id="wave" d=""></path>
+      <g id="gArrow"></g><g id="gDots"></g><g id="gCodes"></g>
+    </svg>
+    <div class="caption" id="caption"></div>
+  </div>
+
+  <div class="legend">
+    <span><i style="border-color:#2456C8"></i>元の波</span>
+    <span><i class="dotmark" style="background:#E8590C"></i>サンプル</span>
+    <span><i style="border-color:#E8590C; opacity:.5"></i>たて＝時間の区切り</span>
+    <span class="lq"><i style="border-color:#0E9E86"></i>よこ＝電圧の段</span>
+    <span class="lq"><b style="color:#E8590C; margin-right:5px;">↕</b>丸め（段への移動）</span>
+    <span class="lq"><i class="dotmark" style="background:#0E9E86"></i>量子化後の値</span>
+    <span class="lc"><b class="mono" style="color:#5B2E9E; margin-right:5px;">01</b>符号（2進数）</span>
+  </div>
+
+  <div class="tablewrap"><table class="datatable" id="datatable"></table></div>
+
+  <div class="panel only-q">
+    <div class="readout">
+      <div class="r"><div class="k">1秒間のサンプル数</div><div class="v"><span id="roS">1200</span> <small>回</small></div></div>
+      <div class="r"><div class="k">1サンプルのビット数（段の数）</div><div class="v"><span id="roB">3</span> <small>ビット（<span id="roL">8</span>段）</small></div></div>
+      <div class="r"><div class="k">平均の丸め誤差</div><div class="v"><span id="roE">0.00</span></div></div>
+    </div>
+    <div class="datarate only-c" id="datarate"></div>
+  </div>
+
+  <div class="panel only-c">
+    <div style="font-weight:700; margin-bottom:6px;">聞き比べ</div>
+    <div class="audiorow">
+      <button class="abtn orig" id="btnOrig">▶ 元の音</button>
+      <button class="abtn dig" id="btnDig">▶ デジタル化した音</button>
+      <button class="abtn cd" id="btnCD">▶ 音楽CDの音</button>
+      <span class="hint">※ 音楽CDはサンプリング周波数が44.1kHz、量子化ビット数が16ビット</span>
+    </div>
+  </div>
+
+  <div class="named" id="named"></div>
+
+  <div class="panel only-c">
+    <div style="font-weight:700; margin-bottom:6px;">確認クイズ</div>
+    <div class="quizq">
+      <div class="q">Q1. サンプルの数（サンプリング周波数）を増やすと、点をつないだ形はどうなる？</div>
+      <div class="opts" data-q="q1" data-a="c">
+        <button class="opt" data-o="a">元の波から遠ざかる</button>
+        <button class="opt" data-o="b">数とは関係なく変わらない</button>
+        <button class="opt" data-o="c">元のなめらかな波に近づく</button>
+      </div>
+      <div class="explain">サンプルが多いほど、点をつないだ形は元のなめらかな波に近づきます。逆に少なすぎると、速い変化を追えず元の波を再現できません。</div>
+    </div>
+    <div class="quizq">
+      <div class="q">Q2. 量子化ビット数を 1 つ増やすと、段の数と丸め誤差はどうなる？</div>
+      <div class="opts" data-q="q2" data-a="a">
+        <button class="opt" data-o="a">段の数は 2 倍・丸め誤差は小さくなる</button>
+        <button class="opt" data-o="b">段の数は 2 倍・丸め誤差は大きくなる</button>
+        <button class="opt" data-o="c">段の数は半分・丸め誤差は小さくなる</button>
+      </div>
+      <div class="explain">段の数 ＝ 2 の（ビット数）乗なので、1 ビット増えると段の数は 2 倍。段が細かくなるほど丸め誤差は小さくなりますが、その分データ量は増えます。</div>
+    </div>
+    <div class="quizq">
+      <div class="q">Q3. アナログの波を標本化・量子化・符号化した結果、コンピュータが最終的に扱うデータはどれ？</div>
+      <div class="opts" data-q="q3" data-a="c">
+        <button class="opt" data-o="a">なめらかな波（アナログ）</button>
+        <button class="opt" data-o="b">段の番号（整数）</button>
+        <button class="opt" data-o="c">0 と 1（2進数）</button>
+      </div>
+      <div class="explain">各サンプルの段番号を符号化して 0 と 1（2進数）で表したものがデジタルデータです。コンピュータはこの 0 と 1 を扱います。</div>
+    </div>
+    <div class="quizq">
+      <div class="q">Q4. 元の音声を完全に再現するために必要なサンプリング周波数は？</div>
+      <div class="opts" data-q="q4" data-a="b">
+        <button class="opt" data-o="a">元の音に含まれる最も高い周波数と同じ</button>
+        <button class="opt" data-o="b">元の音に含まれる最も高い周波数の 2 倍より高い</button>
+        <button class="opt" data-o="c">周波数の高さに関係なく、いくつでもよい</button>
+      </div>
+      <div class="explain">元の信号を完全に再現するには、含まれる最も高い周波数の 2 倍より高いサンプリング周波数が必要で、このことを 標本化定理（サンプリング定理）といいます。人の耳に聞こえる音はおよそ 20kHz までなので、その 2 倍（40kHz）を超える 44.1kHz が音楽CDで使われています。</div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  "use strict";
+  var T=0.01, VMAX=7, XL=64,XR=680,TOP=40,BOT=280, R=4.5, SVGNS="http://www.w3.org/2000/svg";
+  var state={tab:1, N:12, bits:3, s1:false, s2:false, s3:false};
+  var timers=[], reqId=0, audioCtx=null;
+
+  function $(id){return document.getElementById(id);}
+  function app(){return $("app");}
+  function wave(t){return 3.5+1.7*Math.sin(2*Math.PI*200*t)+1.1*Math.sin(2*Math.PI*400*t+0.6)+0.5*Math.sin(2*Math.PI*100*t+1.2);}
+  function xmap(t){return XL+(t/T)*(XR-XL);}
+  function ymap(v){return BOT-(v/VMAX)*(BOT-TOP);}
+  function mk(tag,at,txt){var e=document.createElementNS(SVGNS,tag);for(var k in at){e.setAttribute(k,at[k]);}if(txt!=null)e.textContent=txt;return e;}
+  function samples(){var a=[];for(var i=0;i<state.N;i++){var t=i*T/state.N,v=wave(t);a.push({t:t,x:xmap(t),v:v,y:ymap(v)});}return a;}
+  function levelsOf(b){var L=Math.pow(2,b),a=[];for(var k=0;k<L;k++){a.push(k*VMAX/(L-1));}return a;}
+  function qIndex(v,lv){var b=0,bd=1e9;for(var k=0;k<lv.length;k++){var d=Math.abs(v-lv[k]);if(d<bd){bd=d;b=k;}}return b;}
+  function bin(k,b){var s=k.toString(2);while(s.length<b)s="0"+s;return s;}
+  function clearTimers(){timers.forEach(clearTimeout);timers=[];}
+  function cancelAnim(){if(reqId){cancelAnimationFrame(reqId);reqId=0;}app().classList.remove("arrows-on");}
+
+  function drawStatic(){
+    var g=$("gAxis");g.innerHTML="";
+    g.appendChild(mk("line",{"class":"axis",x1:XL,y1:TOP,x2:XL,y2:BOT}));
+    g.appendChild(mk("line",{"class":"axis",x1:XL,y1:BOT,x2:XR,y2:BOT}));
+    for(var ms=0;ms<=10;ms+=2){var x=xmap(ms/1000);
+      g.appendChild(mk("line",{"class":"tick",x1:x,y1:BOT,x2:x,y2:BOT+6}));
+      g.appendChild(mk("text",{"class":"alab",x:x,y:BOT+20,"text-anchor":"middle"},String(ms)));}
+    g.appendChild(mk("text",{"class":"atitle",x:22,y:(TOP+BOT)/2,"text-anchor":"middle","transform":"rotate(-90 22 "+((TOP+BOT)/2)+")"},"電圧"));
+    g.appendChild(mk("text",{"class":"atitle",x:(XL+XR)/2,y:BOT+40,"text-anchor":"middle"},"時間〔ms〕"));
+    $("wave").setAttribute("d",(function(){var d="",n=500;for(var i=0;i<=n;i++){var t=i/n*T,x=xmap(t),y=ymap(wave(t));d+=(i?"L":"M")+x.toFixed(1)+" "+y.toFixed(1);}return d;})());
+  }
+
+  function buildVLines(){var gd=$("gDiv");gd.innerHTML="";samples().forEach(function(s){gd.appendChild(mk("line",{"class":"divline",x1:s.x,y1:TOP,x2:s.x,y2:BOT}));});}
+  function buildDots(){var gt=$("gDots");gt.innerHTML="";var st=Math.min(0.05,0.9/state.N);samples().forEach(function(s,i){var c=mk("circle",{"class":"dot",cx:s.x,cy:s.y,r:R});c.style.transitionDelay=(i*st).toFixed(3)+"s";gt.appendChild(c);});}
+  function buildLevels(){var gl=$("gLevels");gl.innerHTML="";var lv=levelsOf(state.bits),L=lv.length,step=Math.max(1,Math.ceil(L/16));lv.forEach(function(vl,k){var y=ymap(vl);
+    gl.appendChild(mk("line",{"class":"lvline",x1:XL,y1:y,x2:XR,y2:y}));
+    if(k%step===0){gl.appendChild(mk("text",{"class":"lvnum",x:XL-8,y:y+4,"text-anchor":"end"},String(k)));
+    gl.appendChild(mk("text",{"class":"lvbin",x:XR+14,y:y+4,"text-anchor":"start"},bin(k,state.bits)));}});}
+  function setDy(){var S=samples(),lv=levelsOf(state.bits),dots=$("gDots").querySelectorAll(".dot");
+    S.forEach(function(s,i){var qy=ymap(lv[qIndex(s.v,lv)]);if(dots[i])dots[i].style.setProperty("--dy",(qy-s.y).toFixed(1)+"px");});}
+  function buildCodes(){var S=samples(),lv=levelsOf(state.bits),gc=$("gCodes"),st=Math.min(0.05,0.9/state.N);gc.innerHTML="";
+    S.forEach(function(s,i){var k=qIndex(s.v,lv),qy=ymap(lv[k]),dy=qy-s.y;
+      var ly=(dy>R+4)?(qy+R+14):(qy-R-8);   // 矢印の反対側に置いて重なりを防ぐ
+      var e=mk("text",{"class":"clab",x:s.x,y:ly},bin(k,state.bits));e.style.transitionDelay=(i*st).toFixed(3)+"s";gc.appendChild(e);});}
+  function buildTable(){var S=samples(),lv=levelsOf(state.bits);
+    var h="<tr><th>サンプル</th>",vr="<tr><th>量子化後の電圧</th>",cr='<tr class="coderow"><th>符号</th>';
+    S.forEach(function(s,i){var k=qIndex(s.v,lv);h+="<td>"+(i+1)+"</td>";vr+="<td>"+k+"</td>";cr+="<td>"+bin(k,state.bits)+"</td>";});
+    $("datatable").innerHTML=h+"</tr>"+vr+"</tr>"+cr+"</tr>";}
+  function drawArrowsFull(){var S=samples(),lv=levelsOf(state.bits),ga=$("gArrow");ga.innerHTML="";
+    S.forEach(function(s){var k=qIndex(s.v,lv),qy=ymap(lv[k]),dy=qy-s.y;
+      if(Math.abs(dy)>R+4){var dir=dy>0?1:-1,ax=qy-dir*(R+1),hl=5,hw=3,by=ax-dir*hl;
+        ga.appendChild(mk("line",{"class":"arrow",x1:s.x,y1:s.y,x2:s.x,y2:ax}));
+        ga.appendChild(mk("polygon",{"class":"arrow",points:(s.x-hw)+","+by+" "+(s.x+hw)+","+by+" "+s.x+","+ax}));}});}
+  function updateReadout(){var lv=levelsOf(state.bits),S=samples(),errSum=0;
+    S.forEach(function(s){errSum+=Math.abs(s.v-lv[qIndex(s.v,lv)]);});
+    $("roS").textContent=(state.N*100);$("roB").textContent=state.bits;$("roL").textContent=Math.pow(2,state.bits);
+    $("roE").textContent=(errSum/state.N).toFixed(2);
+    var perSec=state.N*100,dataBits=perSec*state.bits;
+    $("datarate").innerHTML="1秒あたりのデータ量 ＝ "+perSec.toLocaleString()+" サンプル × "+state.bits+" ビット ＝ <b>"+dataBits.toLocaleString()+" ビット/秒</b>（約 "+Math.round(dataBits/8).toLocaleString()+" バイト/秒）";}
+
+  function rebuildBits(){buildLevels();setDy();buildCodes();buildTable();drawArrowsFull();updateReadout();}
+  function rebuildN(){$("nVal").textContent=state.N;$("rate").textContent="（10 ms に "+state.N+" 個 ＝ 1秒あたり "+(state.N*100)+" 回）";buildVLines();buildDots();rebuildBits();}
+
+  var CAP={1:"",
+           2:"「量子化する」を押すと、各サンプルが矢印の向きに最寄りの段へ移動し、緑（量子化後の値）に変わります。",
+           3:""};
+  var TERM={1:"一定の間隔で電圧の強さを取り出すことを <b>標本化（サンプリング）</b>、1秒あたりのサンプル数を <b>サンプリング周波数〔Hz〕</b> といいます。区切りが多いほど、点は元の波に近づきます。",
+            2:"電圧を一番近くの段の値に変換することを <b>量子化</b>、段の数を決める値を <b>量子化ビット数</b> といい、例えば、量子化ビット数が4ビットなら0から15の16（＝2の4乗）段階で電圧を表します。移動した分が <b>丸め誤差</b> です。",
+            3:"量子化によって得られた値を2進数に変換することを <b>符号化</b> といいます。<b>PCM（パルス符号変調）方式</b>では、標本化 → 量子化 → 符号化 という手順で、アナログの音声データをコンピュータが扱えるデジタルデータ（2進数）に変換します。"};
+  var PROMPT={1:"「標本化する」を押してみよう。",2:"「量子化する」を押してみよう。",3:"「符号化する」を押してみよう。"};
+  function refreshNamed(){$("named").innerHTML=(state["s"+state.tab]?TERM[state.tab]:PROMPT[state.tab]);}
+  function updateButtons(){
+    var b2=document.querySelector('.dobtn[data-do="2"]'),b3=document.querySelector('.dobtn[data-do="3"]');
+    b2.disabled=!state.s1;b3.disabled=!state.s2;
+    $("hint2").textContent=state.s1?"":"※ 先に「標本化する」";$("hint3").textContent=state.s2?"":"※ 先に「量子化する」";
+    document.querySelectorAll(".dobtn").forEach(function(x){x.classList.remove("pulsing");});
+    var cur=document.querySelector('.dobtn[data-do="'+state.tab+'"]');
+    if(cur&&!cur.disabled&&!state["s"+state.tab])cur.classList.add("pulsing");
+    document.querySelectorAll(".tab").forEach(function(t){t.classList.remove("pulsing");});
+    var pt=(state.s1&&!state.s2&&state.tab!==2)?2:((state.s2&&!state.s3&&state.tab!==3)?3:0);
+    if(pt)document.querySelector('.tab[data-tab="'+pt+'"]').classList.add("pulsing");}
+
+  function refreshView(animate){
+    cancelAnim();
+    var dots=$("gDots").querySelectorAll(".dot");dots.forEach(function(d){d.style.transform="";});
+    var a=app();
+    if(!animate)a.classList.add("no-anim");
+    a.classList.remove("show-dots","show-glines","at-levels","greened","coded");
+    if(state.s1)a.classList.add("show-dots");
+    if(state.tab===2||state.tab===3)a.classList.add("show-glines");
+    var atLevels=(state.tab===2||state.tab===3)&&state.s2;
+    if(atLevels)a.classList.add("at-levels","greened");
+    if(state.tab===3&&state.s3)a.classList.add("coded");
+    if(!animate){void a.offsetWidth;a.classList.remove("no-anim");}
+  }
+
+  function performSample(){if(!state.s1){state.s1=true;}refreshView(true);updateButtons();refreshNamed();}
+
+  function animateQuantize(onEnd){
+    var S=samples(),lv=levelsOf(state.bits),dots=$("gDots").querySelectorAll(".dot"),items=[];
+    S.forEach(function(s,i){items.push({x:s.x,y0:s.y,y1:ymap(lv[qIndex(s.v,lv)]),dot:dots[i]});});
+    var ga=$("gArrow"),start=null,dur=640,a=app();a.classList.add("arrows-on");
+    function ease(p){return 1-Math.pow(1-p,3);}
+    function frame(ts){if(start===null)start=ts;var e=ease(Math.min(1,(ts-start)/dur));ga.innerHTML="";
+      items.forEach(function(it){var cy=it.y0+(it.y1-it.y0)*e;if(it.dot)it.dot.style.transform="translateY("+(cy-it.y0).toFixed(1)+"px)";
+        var mv=cy-it.y0;if(Math.abs(mv)>R+4){var dir=(it.y1-it.y0)>0?1:-1,ax=cy-dir*(R+1),hl=5,hw=3,by=ax-dir*hl;
+          ga.appendChild(mk("line",{"class":"arrow",x1:it.x,y1:it.y0,x2:it.x,y2:ax}));
+          ga.appendChild(mk("polygon",{"class":"arrow",points:(it.x-hw)+","+by+" "+(it.x+hw)+","+by+" "+it.x+","+ax}));}});
+      if((ts-start)<dur){reqId=requestAnimationFrame(frame);}else{reqId=0;onEnd&&onEnd();}}
+    reqId=requestAnimationFrame(frame);
+  }
+
+  function performQuant(){
+    if(!state.s1)state.s1=true;
+    state.s2=true;rebuildBits();clearTimers();cancelAnim();
+    var a=app();
+    // 前提：緑の横線はタブ2で既に表示。点はオレンジで波の上（at-levelsなし）
+    a.classList.remove("at-levels","greened");a.classList.add("show-dots","show-glines");
+    var dots=$("gDots").querySelectorAll(".dot");a.classList.add("no-anim");dots.forEach(function(d){d.style.transform="";});void a.offsetWidth;a.classList.remove("no-anim");
+    timers.push(setTimeout(function(){
+      a.classList.add("no-anim");
+      animateQuantize(function(){
+        dots.forEach(function(d){d.style.transform="";});a.classList.add("at-levels");void a.offsetWidth;a.classList.remove("no-anim");
+        a.classList.add("greened");a.classList.remove("arrows-on");drawArrowsFull();
+      });
+    },260));
+    updateButtons();refreshNamed();
+  }
+  function performCode(){if(!state.s2)performQuant();state.s3=true;buildCodes();buildTable();var a=app();a.classList.remove("coded");void a.offsetWidth;refreshView(true);updateButtons();refreshNamed();}
+
+  function setTab(t){
+    state.tab=t;clearTimers();
+    var a=app();a.classList.remove("tab-1","tab-2","tab-3");a.classList.add("tab-"+t);
+    document.querySelectorAll(".tab").forEach(function(b){b.classList.toggle("active",b.getAttribute("data-tab")==String(t));});
+    document.querySelectorAll(".tabpanel").forEach(function(p){p.classList.toggle("active",p.getAttribute("data-panel")==String(t));});
+    $("caption").textContent=CAP[t];refreshNamed();updateButtons();refreshView(false);
+  }
+  function reset(){cancelAnim();clearTimers();state.s1=state.s2=state.s3=false;state.N=12;state.bits=3;
+    $("nrange").value=12;$("bitrange").value=3;$("bitVal").textContent=3;$("bitLevels").textContent=8;
+    rebuildN();setTab(1);}
+
+  // 音の聞き比べ
+  function playBuffer(fill){try{if(!audioCtx)audioCtx=new (window.AudioContext||window.webkitAudioContext)();}catch(e){return;}
+    var ctx=audioCtx;if(!ctx)return;if(ctx.resume)ctx.resume();
+    var dur=0.7,sr=ctx.sampleRate,n=Math.floor(dur*sr),buf=ctx.createBuffer(1,n,sr),ch=buf.getChannelData(0),f=Math.floor(sr*0.02);
+    for(var i=0;i<n;i++){var t=i/sr,env=1;if(i<f)env=i/f;else if(i>n-f)env=(n-i)/f;ch[i]=fill(t)*0.25*env;}
+    var s=ctx.createBufferSource();s.buffer=buf;s.connect(ctx.destination);s.start();}
+  function playOriginal(){playBuffer(function(t){return (wave(t)-3.5)/3.5;});}
+  function playDigitized(){var fs=state.N*100,lv=levelsOf(state.bits);playBuffer(function(t){var j=Math.floor(t*fs),ts=j/fs;return (lv[qIndex(wave(ts),lv)]-3.5)/3.5;});}
+  function q16(v){var max=65535,q=Math.round(v/VMAX*max);if(q<0)q=0;if(q>max)q=max;return q/max*VMAX;}
+  function playCD(){var fs=44100;playBuffer(function(t){var x=t*fs,j=Math.floor(x),fr=x-j,a=q16(wave(j/fs)),b=q16(wave((j+1)/fs));return (a+(b-a)*fr-3.5)/3.5;});}
+
+  // イベント
+  $("nrange").addEventListener("input",function(){state.N=parseInt(this.value,10);rebuildN();refreshView(false);});
+  $("bitrange").addEventListener("input",function(){state.bits=parseInt(this.value,10);$("bitVal").textContent=state.bits;$("bitLevels").textContent=Math.pow(2,state.bits);rebuildBits();});
+  document.querySelectorAll(".tab").forEach(function(b){b.addEventListener("click",function(){setTab(parseInt(this.getAttribute("data-tab"),10));});});
+  $("btnReset").addEventListener("click",reset);
+  document.querySelector('.dobtn[data-do="1"]').addEventListener("click",performSample);
+  document.querySelector('.dobtn[data-do="2"]').addEventListener("click",function(){if(!this.disabled)performQuant();});
+  document.querySelector('.dobtn[data-do="3"]').addEventListener("click",function(){if(!this.disabled)performCode();});
+  $("btnOrig").addEventListener("click",playOriginal);
+  $("btnDig").addEventListener("click",playDigitized);
+  $("btnCD").addEventListener("click",playCD);
+  document.querySelectorAll(".quizq").forEach(function(qq){var group=qq.querySelector(".opts"),ans=group.getAttribute("data-a"),ex=qq.querySelector(".explain"),locked=false;
+    group.querySelectorAll(".opt").forEach(function(opt){opt.addEventListener("click",function(){
+      if(locked)return;locked=true;var chosen=this.getAttribute("data-o");
+      group.querySelectorAll(".opt").forEach(function(o){o.disabled=true;var oo=o.getAttribute("data-o");
+        if(oo===ans)o.classList.add("correct");else if(oo===chosen)o.classList.add("wrong");});
+      if(ex)ex.classList.add("show");});});});
+
+  // テスト用
+  window.__state=state; window.__setTab=setTab; window.__reset=reset;
+  window.__do=function(n){if(n>=1)state.s1=true;if(n>=2)state.s2=true;if(n>=3)state.s3=true;rebuildBits();refreshView(false);updateButtons();refreshNamed();};
+  window.__codes=function(){var S=samples(),lv=levelsOf(state.bits);return S.map(function(s){return bin(qIndex(s.v,lv),state.bits);});};
+
+  drawStatic();rebuildN();setTab(1);
+})();
+</script>
+</body>
+</html>
